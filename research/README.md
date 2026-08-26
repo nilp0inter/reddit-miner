@@ -9,6 +9,7 @@ live on 2026-08-26) or `unverified` (secondary source or not yet probed).
 | `reddit-scraping-quickstart.md` | How to get Reddit data the compliant way: PRAW setup, free-tier limits, read-only patterns, archives, terms-of-service constraints |
 | `extraction-methods.md` | Full taxonomy of extraction methods (official API, wrappers, JSON endpoints, HTML scraping, SaaS, archives, RSS), integrated from the operator survey with 2026 corrections |
 | `targeting-v1.md` | v1 target subreddits for ComfyUI 3D-asset and generative-video workflows, keyword sets, and the collection plan |
+| `minimax-h3-readiness-assessment.md` | Evidence-based plan for becoming effective with MiniMax H3 through this MCP server, plus its capability and knowledge gaps |
 
 ## Decisions locked so far
 
