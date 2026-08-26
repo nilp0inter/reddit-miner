@@ -7,23 +7,47 @@ generating 3D assets, video assets, and generative video in general.
 ## Target subreddits
 
 Verification method: RSS probe (`https://www.reddit.com/r/<name>/.rss`,
-2026-08-26). Reddit 429-throttled this IP after two requests, so only two
-subreddits could be verified live. Re-verify the rest at collection time with
-the authenticated API.
+2026-08-26). Reddit 429-throttled this IP after roughly two requests, so live
+verification (HTTP 200) succeeded for three subreddits. Search results back
+the rest. Re-verify at collection time with the authenticated API.
 
-| Subreddit | Role | Status |
-|---|---|---|
-| r/comfyui | Primary. ComfyUI workflows, node graphs, techniques. | Verified live (HTTP 200) |
-| r/StableDiffusionUI | Primary. ComfyUI-adjacent community (originally the AUTOMATIC1111 alternative UI community, now heavily ComfyUI). | Verified live (HTTP 200) |
-| r/StableDiffusion | Primary. Largest SD community; workflows, model releases, techniques. | Unverified (probe 429); known active community |
-| r/aivideo | Secondary. Generative video in general. | Unverified (probe 429) |
-| r/wanvideo | Secondary. Wan video model community. | Unverified (probe 429) |
-| r/GenAI | Secondary. Broad generative-AI, includes 3D and video tool posts. | Unverified (probe 429) |
+Subscriber counts: no reliable source was reachable this session. The
+subredditstats.com API is dead ("not found"), and Reddit blocks
+unauthenticated API metadata. Get exact counts from PRAW
+(`subreddit.subscribers`) at collection time; do not cite stale numbers.
+
+| Subreddit | Role | Status | Evidence |
+|---|---|---|---|
+| r/comfyui | Primary. ComfyUI workflows, node graphs, techniques. | Verified live (RSS HTTP 200) | Probe |
+| r/StableDiffusion | Primary. Largest SD community; workflows, model releases, techniques. | Live-ness unverified (probe 429); active confirmed | Search: Hunyuan3D 2.0 release thread (r/StableDiffusion, 19mo ago); "GenAI 3D Asset platforms compared, Tripo vs Meshy vs Trellis vs Hunyuan" (19mo ago) |
+| r/StableDiffusionUI | Primary. ComfyUI-adjacent community. | Verified live (RSS HTTP 200) | Probe |
+| r/unstable_diffusion | Secondary. NSFW image generation; heavy ComfyUI use. | Verified live (RSS HTTP 200) | Probe + search: community is NSFW AI image generation, shares ComfyUI workflows |
+| r/aivideo | Secondary. Generative video in general. | Unverified (probe 429) | — |
+| r/wanvideo | Secondary. Wan video model community. | Unverified (probe 429) | — |
+| r/GenAI | Secondary. Broad generative-AI, includes 3D and video tool posts. | Unverified (probe 429) | — |
+
+r/unstable_diffusion scope note: the community generates NSFW images. That
+content is out of scope for the v1 corpus. Include the subreddit for its
+ComfyUI workflow knowledge only. The collector must carry an NSFW filter:
+exclude NSFW-flagged submissions (`.over_18`) at ingest, keep only
+workflow-relevant signal (workflow JSON links, node discussions).
 
 Note on 3D assets: dedicated 3D-generation subreddits are small and unstable.
-The bulk of the 3D-asset knowledge (TRELLIS, Hunyuan3D, TripoSR workflows)
-lives inside r/comfyui and r/StableDiffusion as technique posts. v1 must use
-keyword search inside the big communities, not a dedicated small subreddit.
+Search confirms the 3D-asset knowledge (TRELLIS, Hunyuan3D, TripoSR
+comparisons) lives inside r/comfyui and r/StableDiffusion as technique posts:
+"TripoSG vs Hunyuan3D (small comparison)" (r/comfyui, 16mo ago) and the two
+r/StableDiffusion threads above. v1 must use keyword search inside the big
+communities, not a dedicated small subreddit.
+
+Evidence links (search, 2026-08-26):
+
+- https://www.reddit.com/r/StableDiffusion/comments/1mg1kx9/ (3D asset
+  platforms compared: Tripo vs Meshy vs Trellis vs Hunyuan)
+- https://www.reddit.com/r/StableDiffusion/comments/1i6d0mr/ (Hunyuan3D 2.0
+  release discussion)
+- https://www.reddit.com/r/comfyui/comments/1jrrm15/ (TripoSG vs Hunyuan3D
+  comparison in r/comfyui)
+
 
 ## Keyword sets
 
