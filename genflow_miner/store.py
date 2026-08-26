@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS items (
     subreddit   TEXT NOT NULL,
     created_utc REAL NOT NULL,          -- item creation time (epoch seconds)
     topic_name  TEXT NOT NULL,
+    is_nsfw     INTEGER NOT NULL DEFAULT 0,
     first_seen  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     state       TEXT NOT NULL DEFAULT 'pending'  -- 'pending' | 'delivered'
         CHECK (state IN ('pending', 'delivered')),
@@ -66,6 +67,7 @@ class Item:
     created_utc: float
     topic_name: str
     media_urls: tuple[str, ...] = ()
+    is_nsfw: bool = False
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=30.0)
@@ -83,6 +85,18 @@ class Store:
         self.db_path = str(db_path)
         with _connect(self.db_path) as conn:
             conn.executescript(SCHEMA)
+            self._migrate_schema(conn)
+
+    @staticmethod
+    def _migrate_schema(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(items)")
+        }
+        if "is_nsfw" not in columns:
+            conn.execute(
+                "ALTER TABLE items"
+                " ADD COLUMN is_nsfw INTEGER NOT NULL DEFAULT 0"
+            )
 
     # -- topics ------------------------------------------------------------
 
@@ -129,14 +143,15 @@ class Store:
                 item.subreddit,
                 item.created_utc,
                 item.topic_name,
+                int(item.is_nsfw),
             )
             for item in items
         ]
         with _connect(self.db_path) as conn:
             cur = conn.executemany(
                 "INSERT INTO items (reddit_id, kind, title, body, permalink,"
-                " subreddit, created_utc, topic_name)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " subreddit, created_utc, topic_name, is_nsfw)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (reddit_id) DO NOTHING",
                 rows,
             )
@@ -219,7 +234,7 @@ class Store:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(
                 "SELECT reddit_id, kind, title, body, permalink, subreddit,"
-                " created_utc, topic_name, first_seen"
+                " created_utc, topic_name, is_nsfw, first_seen"
                 " FROM items WHERE state = 'pending'"
                 " ORDER BY rowid LIMIT ?",
                 (limit,),

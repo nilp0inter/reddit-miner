@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import threading
 
 import pytest
@@ -55,6 +57,7 @@ def test_claim_fields_and_ordering(store):
         "subreddit",
         "created_utc",
         "topic_name",
+        "is_nsfw",
         "first_seen",
         "media",
     }
@@ -116,3 +119,35 @@ def test_claim_limit_zero_returns_empty(store):
     store.insert_items([make_item("t3_1")])
     assert store.claim_pending(0) == []
     assert store.pending_count() == 1
+
+
+def test_store_migrates_legacy_items_with_nsfw_default(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE items (
+                reddit_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                permalink TEXT NOT NULL,
+                subreddit TEXT NOT NULL,
+                created_utc REAL NOT NULL,
+                topic_name TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                state TEXT NOT NULL,
+                delivered_at TEXT
+            );
+            INSERT INTO items VALUES (
+                't3_legacy', 'submission', 'title', 'body', 'url',
+                'comfyui', 1.0, 'legacy', '2026-01-01T00:00:00Z',
+                'pending', NULL
+            );
+            """
+        )
+
+    store = Store(path)
+    row = store.claim_pending(10)[0]
+    assert row["reddit_id"] == "t3_legacy"
+    assert row["is_nsfw"] == 0

@@ -17,7 +17,8 @@ research and target communities.
 - Streamable HTTP MCP on `127.0.0.1` only. The endpoint is `/mcp`.
 - No HTML scraping, undocumented `.json` endpoints, hashes, analytics, or
   score-based ranking.
-- NSFW submissions (`over_18`) and their comments are excluded before storage.
+- NSFW status is preserved as `is_nsfw`. The collector does not discard items
+  based on Reddit's `over_18` flag.
 - Reddit-hosted images and videos download to `--media-dir`. SQLite records
   their internal paths, but MCP never exposes those paths.
 
@@ -124,6 +125,9 @@ The result is one object with an `items` list. This operation atomically marks
 returned items as delivered. It is at-most-once: if a distiller crashes after
 this call, those items are not automatically returned again.
 
+Each item includes `is_nsfw`. Clients can make their own content-scope decision
+without hidden collection-time exclusion.
+
 Items with stored media include a `media` list. Each entry has an ID, MIME
 type, and a `media://<id>` URI. It never includes a local filesystem path.
 
@@ -149,8 +153,9 @@ Start with narrow queries that describe useful workflow knowledge. Examples:
 - `WanVideo OR LTX-Video OR HunyuanVideo` in `StableDiffusion`
 - `workflow JSON OR custom node` in `comfyui`
 
-`unstable_diffusion` is allowed as a topic source, but the collector excludes
-submissions marked NSFW.
+`unstable_diffusion` is collected like every other configured subreddit. Its
+items and comments retain `is_nsfw = true` when Reddit marks the submission
+`over_18`.
 
 ## Verify
 

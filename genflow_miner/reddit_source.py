@@ -65,13 +65,12 @@ def build_reddit():
 def collect_topic(reddit, topic: dict) -> Iterator[Item]:
     """Yield items for one topic: matching submissions and their comments.
 
-    NSFW submissions (over_18) are excluded at ingestion. Deleted/removed
-    bodies are skipped. Errors here are caught by the caller per topic.
+    Deleted and removed bodies are skipped. NSFW status is preserved on each
+    collected item. Errors here are caught by the caller per topic.
     """
     subreddit = reddit.subreddit(topic["subreddit"])
     for submission in subreddit.search(topic["query"], limit=SEARCH_LIMIT, sort="new"):
-        if getattr(submission, "over_18", False):
-            continue
+        is_nsfw = bool(getattr(submission, "over_18", False))
         yield Item(
             reddit_id=f"t3_{submission.id}",
             kind="submission",
@@ -81,6 +80,7 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
             subreddit=submission.subreddit.display_name,
             created_utc=float(submission.created_utc),
             topic_name=topic["name"],
+            is_nsfw=is_nsfw,
             media_urls=extract_media_urls(submission),
         )
         submission.comments.replace_more(limit=0)
@@ -97,6 +97,7 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
                 subreddit=submission.subreddit.display_name,
                 created_utc=float(comment.created_utc),
                 topic_name=topic["name"],
+                is_nsfw=is_nsfw,
             )
 
 

@@ -26,11 +26,10 @@ unauthenticated API metadata. Get exact counts from PRAW
 | r/wanvideo | Secondary. Wan video model community. | Unverified (probe 429) | — |
 | r/GenAI | Secondary. Broad generative-AI, includes 3D and video tool posts. | Unverified (probe 429) | — |
 
-r/unstable_diffusion scope note: the community generates NSFW images. That
-content is out of scope for the v1 corpus. Include the subreddit for its
-ComfyUI workflow knowledge only. The collector must carry an NSFW filter:
-exclude NSFW-flagged submissions (`.over_18`) at ingest, keep only
-workflow-relevant signal (workflow JSON links, node discussions).
+r/unstable_diffusion scope note: the community generates NSFW images. The
+collector retains its submissions and comments, including their media, and
+records the Reddit `over_18` state as `is_nsfw`. No hidden collection-time
+filter decides which workflow evidence a downstream researcher can read.
 
 Note on 3D assets: dedicated 3D-generation subreddits are small and unstable.
 Search confirms the 3D-asset knowledge (TRELLIS, Hunyuan3D, TripoSR

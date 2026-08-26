@@ -109,7 +109,7 @@ volume.
 - Reddit-hosted images and videos as `media://` MCP resources.
 - Source permalinks, topic names, creation time, and media MIME types.
 - Deduplication by Reddit ID.
-- NSFW-submission exclusion.
+- Preserved Reddit NSFW state for downstream scope decisions.
 
 This is enough to build a research queue for H3 workflows.
 

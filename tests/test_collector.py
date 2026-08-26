@@ -21,6 +21,7 @@ def sub(id, title="Wan 2.2 workflow", **kw):
         created_utc=kw.pop("created_utc", 1750000000.0),
         comments=kw.pop("comments", ()),
         over_18=kw.pop("over_18", False),
+        **kw,
     )
 
 
@@ -68,24 +69,54 @@ def test_run_pass_dedupes_on_second_run(tmp_path):
     assert store.pending_count() == 2
 
 
-def test_run_pass_excludes_nsfw(tmp_path):
+def test_run_pass_preserves_nsfw_items_and_context(tmp_path):
     store = Store(tmp_path / "db.sqlite3")
     store.add_topic("ud", "ComfyUI", "unstable_diffusion")
+    media_url = "https://i.redd.it/nsfw-workflow.png"
     reddit = FakeReddit(
         {
             "unstable_diffusion": [
-                sub("nsfw1", over_18=True, subreddit="unstable_diffusion",
-                    comments=(comment("cnsfw"),)),
+                sub(
+                    "nsfw1",
+                    over_18=True,
+                    subreddit="unstable_diffusion",
+                    comments=(comment("cnsfw"),),
+                    url=media_url,
+                    post_hint="image",
+                ),
                 sub("ok1", subreddit="unstable_diffusion"),
             ]
         }
     )
-    inserted, _ = run_pass(store, reddit, store.enabled_topics())
-    # NSFW submission AND its comments are excluded at ingestion
-    assert inserted == 1
-    rows = store.claim_pending(10)
-    assert [r["reddit_id"] for r in rows] == ["t3_ok1"]
+    fetched: list[str] = []
 
+    def fetcher(url: str) -> tuple[bytes, str]:
+        fetched.append(url)
+        return b"NSFW workflow media", "image/png"
+
+    inserted, _ = run_pass(
+        store,
+        reddit,
+        store.enabled_topics(),
+        media_dir=tmp_path / "media",
+        fetcher=fetcher,
+    )
+    assert inserted == 3
+
+    rows = store.claim_pending(10)
+    assert [row["reddit_id"] for row in rows] == [
+        "t3_nsfw1",
+        "t1_cnsfw",
+        "t3_ok1",
+    ]
+    assert {row["reddit_id"]: row["is_nsfw"] for row in rows} == {
+        "t3_nsfw1": 1,
+        "t1_cnsfw": 1,
+        "t3_ok1": 0,
+    }
+    nsfw_submission = next(row for row in rows if row["reddit_id"] == "t3_nsfw1")
+    assert nsfw_submission["media"][0]["uri"] == "media://1"
+    assert fetched == [media_url]
 
 def test_run_pass_topic_failure_isolated(tmp_path):
     store = Store(tmp_path / "db.sqlite3")
