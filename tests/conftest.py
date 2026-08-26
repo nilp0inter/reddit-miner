@@ -43,6 +43,10 @@ class FakeSubmission:
         created_utc,
         comments=(),
         over_18=False,
+        url="",
+        post_hint=None,
+        media=None,
+        media_metadata=None,
     ):
         self.id = id
         self.title = title
@@ -56,6 +60,10 @@ class FakeSubmission:
         self.created_utc = created_utc
         self.over_18 = over_18
         self.comments = FakeCommentForest(list(comments))
+        self.url = url
+        self.post_hint = post_hint
+        self.media = media
+        self.media_metadata = media_metadata
 
 
 class FakeSubreddit:

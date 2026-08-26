@@ -6,6 +6,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
+
+from .media import FetchMedia, fetch_media, persist_media
 
 from .reddit_source import collect_topic
 from .store import Store
@@ -13,7 +16,14 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 
-def run_pass(store: Store, reddit, topics: list[dict]) -> tuple[int, int]:
+def run_pass(
+    store: Store,
+    reddit,
+    topics: list[dict],
+    *,
+    media_dir: str | Path = "media",
+    fetcher: FetchMedia = fetch_media,
+) -> tuple[int, int]:
     """One collection pass. Per-topic failures are logged and skipped.
 
     Returns (inserted_count, failed_topics).
@@ -22,7 +32,10 @@ def run_pass(store: Store, reddit, topics: list[dict]) -> tuple[int, int]:
     failed = 0
     for topic in topics:
         try:
-            new = store.insert_items(list(collect_topic(reddit, topic)))
+            items = list(collect_topic(reddit, topic))
+            new = store.insert_items(items)
+            for item in items:
+                persist_media(store, item, media_dir, fetcher)
         except Exception:
             failed += 1
             log.exception("topic fetch failed: %s", topic["name"])
@@ -36,10 +49,19 @@ def run_pass(store: Store, reddit, topics: list[dict]) -> tuple[int, int]:
 class CollectorLoop:
     """Background thread that runs run_pass every interval seconds."""
 
-    def __init__(self, store: Store, reddit, interval: float):
+    def __init__(
+        self,
+        store: Store,
+        reddit,
+        interval: float,
+        media_dir: str | Path = "media",
+        fetcher: FetchMedia = fetch_media,
+    ):
         self.store = store
         self.reddit = reddit
         self.interval = interval
+        self.media_dir = media_dir
+        self.fetcher = fetcher
         self.stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self.wake_event = threading.Event()
@@ -57,7 +79,13 @@ class CollectorLoop:
             self._thread.join(timeout=10)
 
     def run_once(self) -> tuple[int, int]:
-        return run_pass(self.store, self.reddit, self.store.enabled_topics())
+        return run_pass(
+            self.store,
+            self.reddit,
+            self.store.enabled_topics(),
+            media_dir=self.media_dir,
+            fetcher=self.fetcher,
+        )
 
     def _run(self) -> None:
         while not self.stop_event.is_set():

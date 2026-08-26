@@ -18,10 +18,13 @@ research and target communities.
 - No HTML scraping, undocumented `.json` endpoints, hashes, analytics, or
   score-based ranking.
 - NSFW submissions (`over_18`) and their comments are excluded before storage.
+- Reddit-hosted images and videos download to `--media-dir`. SQLite records
+  their internal paths, but MCP never exposes those paths.
 
 The collector stores text needed for distillation: title, body, permalink,
 subreddit, creation time, item type, and matching topic. It does not store
-scores, subscriber counts, or author analytics.
+scores, subscriber counts, or author analytics. Downloaded image and video
+bytes live in the local media directory, not in SQLite BLOB columns.
 
 ## Install
 
@@ -46,6 +49,7 @@ password are not required because the collector uses PRAW read-only mode.
 ```sh
 uv run genflow-miner \
   --db genflow-miner.sqlite3 \
+  --media-dir genflow-media \
   --poll-interval 600 \
   --host 127.0.0.1 \
   --port 8000
@@ -120,12 +124,24 @@ The result is one object with an `items` list. This operation atomically marks
 returned items as delivered. It is at-most-once: if a distiller crashes after
 this call, those items are not automatically returned again.
 
+Items with stored media include a `media` list. Each entry has an ID, MIME
+type, and a `media://<id>` URI. It never includes a local filesystem path.
+
+### Media resources
+
+Read `media://<id>` through the MCP resource API to receive the image or video
+bytes. The collector downloads only HTTPS media hosted by Reddit-owned media
+domains. This prevents a Reddit link post from making the collector fetch an
+arbitrary local or private-network URL.
+
 ## Collection behavior
 
 Each poll searches every enabled topic in its configured subreddit. Matching
 submissions and non-deleted comments enter the queue only once. Repeated polls
-can add new comments from a still-matching thread. A failure for one topic is
-logged, then the collector continues with the other topics and later polls.
+can add new comments from a still-matching thread. Reddit-hosted submission
+images and videos download once and appear as MCP media resources. A failure
+for one topic or media download is logged, then the collector continues with
+the other topics and later polls.
 
 Start with narrow queries that describe useful workflow knowledge. Examples:
 
@@ -144,7 +160,8 @@ uv run pytest -q
 
 The test suite uses fake Reddit objects. It does not need live Reddit
 credentials or network access. It covers persistence, deduplication, the
-polling loop, per-topic failures, and all three MCP tools.
+polling loop, per-topic failures, MCP tools, downloaded media, and binary MCP
+resource reads.
 
 ## Research
 

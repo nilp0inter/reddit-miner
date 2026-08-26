@@ -7,12 +7,13 @@ get_unprocessed_results. A collector thread runs in the same process.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import logging
 import sqlite3
 import sys
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 from .collector import CollectorLoop
 from .reddit_source import build_reddit
@@ -78,6 +79,26 @@ def build_server(store: Store) -> MCPServer:
             raise ToolError("limit must be between 1 and 500")
         return {"items": store.claim_pending(limit)}
 
+    @server.resource(
+        "media://{media_id}",
+        description="Read a collected image or video by its MCP media URI.",
+        mime_type="application/octet-stream",
+    )
+    def read_media(media_id: str) -> bytes:
+        try:
+            media = store.get_media(int(media_id))
+        except ValueError:
+            media = None
+        if media is None:
+            raise ResourceNotFoundError(f"media does not exist: {media_id}")
+
+        try:
+            return Path(media["local_path"]).read_bytes()
+        except OSError as exc:
+            raise ResourceNotFoundError(
+                f"media file is unavailable: {media_id}"
+            ) from exc
+
     return server
 
 
@@ -105,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         help="collector poll interval in seconds (default 600)",
     )
     parser.add_argument(
+        "--media-dir",
+        default="genflow-media",
+        help="local directory for downloaded image and video files",
+    )
+    parser.add_argument(
         "--log-level", default="INFO", help="log level (default INFO)"
     )
     args = parser.parse_args(argv)
@@ -123,7 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     server = build_server(store)
-    collector = CollectorLoop(store, reddit, args.poll_interval)
+    collector = CollectorLoop(
+        store, reddit, args.poll_interval, media_dir=args.media_dir
+    )
     collector.start()
     log.info(
         "genflow-miner: MCP on http://%s:%d/mcp, poll interval %ss, db %s",

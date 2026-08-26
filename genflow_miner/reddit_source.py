@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 from collections.abc import Iterator
@@ -15,6 +16,18 @@ log = logging.getLogger(__name__)
 SEARCH_LIMIT = 100
 COMMENT_LIMIT = 200
 
+
+MEDIA_HOST_SUFFIXES = (".redd.it", ".redditmedia.com", ".redditstatic.com")
+MEDIA_SUFFIXES = (
+    ".avif",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".mp4",
+    ".png",
+    ".webm",
+    ".webp",
+)
 
 def build_reddit():
     """Build a read-only PRAW Reddit instance from environment credentials.
@@ -68,6 +81,7 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
             subreddit=submission.subreddit.display_name,
             created_utc=float(submission.created_utc),
             topic_name=topic["name"],
+            media_urls=extract_media_urls(submission),
         )
         submission.comments.replace_more(limit=0)
         for comment in submission.comments.list():
@@ -84,3 +98,59 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
                 created_utc=float(comment.created_utc),
                 topic_name=topic["name"],
             )
+
+
+def extract_media_urls(submission) -> tuple[str, ...]:
+    """Return safe Reddit-hosted image and video URLs for one submission."""
+    candidates: list[str] = []
+
+    url = _clean_url(getattr(submission, "url", None))
+    post_hint = getattr(submission, "post_hint", None)
+    if url and (
+        post_hint in {"image", "hosted:video", "rich:video"}
+        or _has_media_suffix(url)
+    ):
+        candidates.append(url)
+
+    media = getattr(submission, "media", None)
+    if isinstance(media, dict):
+        reddit_video = media.get("reddit_video")
+        if isinstance(reddit_video, dict):
+            fallback_url = _clean_url(reddit_video.get("fallback_url"))
+            if fallback_url:
+                candidates.append(fallback_url)
+
+    metadata = getattr(submission, "media_metadata", None)
+    if isinstance(metadata, dict):
+        for asset in metadata.values():
+            if not isinstance(asset, dict):
+                continue
+            source = asset.get("s")
+            if not isinstance(source, dict):
+                continue
+            for key in ("u", "gif", "mp4"):
+                candidate = _clean_url(source.get(key))
+                if candidate:
+                    candidates.append(candidate)
+
+    return tuple(
+        dict.fromkeys(candidate for candidate in candidates if _is_reddit_media_url(candidate))
+    )
+
+
+def _clean_url(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return html.unescape(value)
+
+
+def _has_media_suffix(url: str) -> bool:
+    return url.split("?", 1)[0].lower().endswith(MEDIA_SUFFIXES)
+
+
+def _is_reddit_media_url(url: str) -> bool:
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    return parsed.scheme == "https" and hostname.lower().endswith(MEDIA_HOST_SUFFIXES)

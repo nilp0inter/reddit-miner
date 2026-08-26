@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS items (
     FOREIGN KEY (topic_name) REFERENCES search_topics (name)
 );
 CREATE INDEX IF NOT EXISTS idx_items_state ON items (state);
+
+CREATE TABLE IF NOT EXISTS media (
+    id          INTEGER PRIMARY KEY,
+    reddit_id   TEXT NOT NULL,
+    source_url  TEXT NOT NULL,
+    mime_type   TEXT NOT NULL,
+    local_path  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (reddit_id, source_url),
+    FOREIGN KEY (reddit_id) REFERENCES items (reddit_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_reddit_id ON media (reddit_id);
 """
 
 
@@ -53,7 +65,7 @@ class Item:
     subreddit: str
     created_utc: float
     topic_name: str
-
+    media_urls: tuple[str, ...] = ()
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=30.0)
@@ -130,6 +142,71 @@ class Store:
             )
             return cur.rowcount
 
+    # -- media ---------------------------------------------------------------
+
+    def media_urls(self, reddit_id: str) -> set[str]:
+        with _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT source_url FROM media WHERE reddit_id = ?",
+                (reddit_id,),
+            ).fetchall()
+        return {row["source_url"] for row in rows}
+
+    def add_media(
+        self,
+        reddit_id: str,
+        source_url: str,
+        mime_type: str,
+        local_path: str,
+    ) -> bool:
+        with _connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO media (reddit_id, source_url, mime_type, local_path)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT (reddit_id, source_url) DO NOTHING",
+                (reddit_id, source_url, mime_type, local_path),
+            )
+        return cursor.rowcount == 1
+
+    def get_media(self, media_id: int) -> dict[str, Any] | None:
+        with _connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT id, reddit_id, source_url, mime_type, local_path"
+                " FROM media WHERE id = ?",
+                (media_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def _attach_media(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if not items:
+            return items
+
+        reddit_ids = [item["reddit_id"] for item in items]
+        placeholders = ", ".join("?" for _ in reddit_ids)
+        with _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, reddit_id, mime_type FROM media"
+                f" WHERE reddit_id IN ({placeholders}) ORDER BY id",
+                reddit_ids,
+            ).fetchall()
+
+        by_reddit_id: dict[str, list[dict[str, Any]]] = {
+            reddit_id: [] for reddit_id in reddit_ids
+        }
+        for row in rows:
+            by_reddit_id[row["reddit_id"]].append(
+                {
+                    "id": row["id"],
+                    "uri": f"media://{row['id']}",
+                    "mime_type": row["mime_type"],
+                }
+            )
+        for item in items:
+            item["media"] = by_reddit_id[item["reddit_id"]]
+        return items
+
     def claim_pending(self, limit: int) -> list[dict[str, Any]]:
         """Atomically select pending items and mark them delivered.
 
@@ -161,7 +238,7 @@ class Store:
             raise
         finally:
             conn.close()
-        return [dict(row) for row in rows]
+        return self._attach_media([dict(row) for row in rows])
 
     def pending_count(self) -> int:
         with _connect(self.db_path) as conn:

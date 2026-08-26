@@ -56,6 +56,7 @@ def test_claim_fields_and_ordering(store):
         "created_utc",
         "topic_name",
         "first_seen",
+        "media",
     }
     assert row["kind"] == "submission"
     assert row["body"] == "b"
