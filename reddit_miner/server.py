@@ -1,7 +1,8 @@
 """MCP server (streamable HTTP) plus CLI entry point.
 
-The server exposes exactly three tools: add_search_topic, list_search_topics,
-get_unprocessed_results. A collector thread runs in the same process.
+The server exposes five tools: add_topic, list_topics, remove_topic,
+set_topic_enabled, get_unprocessed_results. A collector thread runs in
+the same process.
 """
 
 from __future__ import annotations
@@ -23,46 +24,89 @@ log = logging.getLogger(__name__)
 
 
 def build_server(store: Store) -> MCPServer:
-    """Build the MCP server with the three public tools."""
+    """Build the MCP server with the five public tools."""
     server = MCPServer(
-        name="genflow-miner",
-        title="genflow-miner",
+        name="reddit-miner",
+        title="reddit-miner",
         description=(
-            "Collect ComfyUI/Stable Diffusion workflow knowledge from Reddit"
+            "Collect community knowledge from Reddit"
             " and hand it to an AI for distillation."
         ),
-        version="0.1.0",
+        version="0.2.0",
     )
 
     @server.tool(
-        name="add_search_topic",
+        name="add_topic",
         description=(
-            "Add a saved Reddit search topic the collector will poll."
-            " `subreddit` defaults to 'all' (site-wide search)."
+            "Add a topic for the collector to poll."
+            " `query` is optional: when omitted the collector ingests every"
+            " new post in `subreddit`; when given it searches that subreddit."
+            " `subreddit` defaults to 'all' (site-wide)."
         ),
     )
-    def add_search_topic(
-        name: str, query: str, subreddit: str = "all"
+    def add_topic(
+        name: str, query: str | None = None, subreddit: str = "all"
     ) -> dict[str, object]:
         name = name.strip()
-        query = query.strip()
         subreddit = subreddit.strip()
-        if not name or not query or not subreddit:
-            raise ToolError("name, query, and subreddit must not be empty")
+        if query is None:
+            normalized_query: str | None = None
+        else:
+            if not isinstance(query, str):
+                raise ToolError("query must be a string or null")
+            normalized_query = query.strip()
+            if not normalized_query:
+                raise ToolError("query must not be empty when provided")
+        if not name or not subreddit:
+            raise ToolError("name and subreddit must not be empty")
         try:
-            store.add_topic(name, query, subreddit)
+            store.add_topic(name, normalized_query, subreddit)
         except sqlite3.IntegrityError:
             raise ToolError(f"topic name already exists: {name}") from None
         return {
-            "topic": {"name": name, "query": query, "subreddit": subreddit}
+            "topic": {
+                "name": name,
+                "query": normalized_query,
+                "subreddit": subreddit,
+            }
         }
 
     @server.tool(
-        name="list_search_topics",
-        description="List all saved search topics with their queries and subreddits.",
+        name="list_topics",
+        description=(
+            "List all saved topics with their queries and subreddits."
+            " A null query means the topic monitors every new post in its"
+            " subreddit."
+        ),
     )
-    def list_search_topics() -> dict[str, object]:
+    def list_topics() -> dict[str, object]:
         return {"topics": store.list_topics()}
+
+    @server.tool(
+        name="remove_topic",
+        description="Delete a saved topic. Collected items keep their topic_name.",
+    )
+    def remove_topic(name: str) -> dict[str, object]:
+        name = name.strip()
+        if not name:
+            raise ToolError("name must not be empty")
+        if not store.remove_topic(name):
+            raise ToolError(f"topic not found: {name}")
+        return {"removed": name}
+
+    @server.tool(
+        name="set_topic_enabled",
+        description="Enable or disable polling for a saved topic.",
+    )
+    def set_topic_enabled(name: str, enabled: bool) -> dict[str, object]:
+        name = name.strip()
+        if not name:
+            raise ToolError("name must not be empty")
+        if not isinstance(enabled, bool):
+            raise ToolError("enabled must be a boolean")
+        if not store.set_topic_enabled(name, enabled):
+            raise ToolError(f"topic not found: {name}")
+        return {"topic": {"name": name, "enabled": enabled}}
 
     @server.tool(
         name="get_unprocessed_results",
@@ -104,14 +148,14 @@ def build_server(store: Store) -> MCPServer:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="genflow-miner",
+        prog="reddit-miner",
         description=(
-            "Reddit workflow-knowledge collector with an MCP server"
+            "Reddit community-knowledge collector with an MCP server"
             " (streamable HTTP)."
         ),
     )
     parser.add_argument(
-        "--db", default="genflow-miner.sqlite3", help="SQLite database path"
+        "--db", default="reddit-miner.sqlite3", help="SQLite database path"
     )
     parser.add_argument(
         "--host", default="127.0.0.1", help="MCP HTTP bind host (default 127.0.0.1)"
@@ -127,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--media-dir",
-        default="genflow-media",
+        default="reddit-media",
         help="local directory for downloaded image and video files",
     )
     parser.add_argument(
@@ -154,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     collector.start()
     log.info(
-        "genflow-miner: MCP on http://%s:%d/mcp, poll interval %ss, db %s",
+        "reddit-miner: MCP on http://%s:%d/mcp, poll interval %ss, db %s",
         args.host,
         args.port,
         args.poll_interval,

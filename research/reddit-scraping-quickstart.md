@@ -83,7 +83,7 @@ reddit = praw.Reddit(
     client_id="CLIENT_ID",
     client_secret="CLIENT_SECRET",
     password="PASSWORD",
-    user_agent="research:genflow-miner:v0.1 (by u/YOUR_USERNAME)",
+    user_agent="research:reddit-miner:v0.2 (by u/YOUR_USERNAME)",
     username="USERNAME",
 )
 

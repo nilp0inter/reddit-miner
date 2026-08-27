@@ -75,7 +75,7 @@ and voting or commenting actions.
 **2026 status:** dead. The repository was archived by its author in 2024; the
 project's own issue tracker declared it "almost dead" (issue #330) before
 that. For JavaScript, call the OAuth API directly or use a maintained
-library. For genflow-miner (Python), snoowrap is out of scope.
+library. For reddit-miner (Python), snoowrap is out of scope.
 
 ## Unofficial JSON endpoints (the `.json` trick)
 
@@ -107,7 +107,7 @@ r/MachineLearning with Selenium into SQLite.
 robots.txt disallows unauthenticated crawlers, and Reddit v. Perplexity
 (October 2025 filing; motion to dismiss rejected 2026-07-31) puts
 "industrial-scale" scraping and terms-of-access violations in active
-litigation. genflow-miner must not use HTML scraping.
+litigation. reddit-miner must not use HTML scraping.
 
 ## Third-party scrapers and no-code platforms
 
@@ -120,7 +120,7 @@ metadata with sort and comment-depth options, and export integrations such as
 n8n or Zapier. Pricing is on the order of a few dollars per 1,000 results.
 
 **2026 status:** viable if budget exists; the provider contractually handles
-compliance. Not needed for genflow-miner v1 — the free API covers our volume.
+compliance. Not needed for reddit-miner v1 — the free API covers our volume.
 
 ### Browser extensions for quick exports
 
@@ -189,7 +189,7 @@ more.
 | Browser extensions | None; user browser | Manual; per-page | Detailed thread comments | Low for users | Client-side over loaded pages |
 | RSS/Atom feeds | None | Lightweight monitoring | Post metadata only | Low; stable format | Longstanding public interface |
 
-## Choosing an approach (genflow-miner decisions)
+## Choosing an approach (reddit-miner decisions)
 
 1. Live data: official Data API through PRAW. Read-only. (Long-term
    compliant path.)

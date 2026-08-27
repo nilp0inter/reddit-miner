@@ -1,13 +1,15 @@
 # MiniMax H3 Readiness Assessment
 
+> **Worked example** — one deployment of reddit-miner. The system itself is domain-neutral; this document shows how an operator used it to collect MiniMax H3 knowledge.
+
 Date: 2026-08-26.
 
-Scope: use genflow-miner as a research system for MiniMax H3. This assessment
+Scope: use reddit-miner as a research system for MiniMax H3. This assessment
 proposes no product changes.
 
 ## Decision
 
-Use genflow-miner as an evidence inbox. Do not treat it as a MiniMax H3 control
+Use reddit-miner as an evidence inbox. Do not treat it as a MiniMax H3 control
 plane.
 
 The collector can gather community practice. It cannot by itself establish
@@ -33,7 +35,7 @@ format requirements, moderation, and license constraints. The local open model
 produces the base result. Context-IR and 2K regeneration remain important parts
 of the official full workflow.
 
-## How to proceed with genflow-miner
+## How to proceed with reddit-miner
 
 ### 1. Create separate evidence streams
 
@@ -64,7 +66,7 @@ distillation record before moving to another batch.
 
 ### 3. Create one H3 knowledge card per useful finding
 
-Record these five fields outside genflow-miner:
+Record these five fields outside reddit-miner:
 
 1. **Exact model and runtime.** Record FL2VA, Ref2VA, H3 API, Context-IR,
    Regenerate-2K, or a local checkpoint.
@@ -102,7 +104,7 @@ Compare identity retention, sketch adherence, motion coherence, audio quality,
 and failure rate. Expertise comes from reproduced evidence, not collection
 volume.
 
-## What genflow-miner already supplies
+## What reddit-miner already supplies
 
 - Persistent, narrow Reddit searches through saved topics.
 - Threads and non-deleted comments for technique discussion.
@@ -176,7 +178,7 @@ when a reference image depicts a real person.
 
 ## Verdict
 
-genflow-miner can make a user well-informed about community H3 practice. It
+reddit-miner can make a user well-informed about community H3 practice. It
 cannot by itself make that user an H3 expert or generate arbitrary
 reference-driven video.
 
@@ -188,4 +190,4 @@ disciplined experiment record.
 
 - [MiniMax H3 open-source announcement](https://www.minimax.io/news/minimax-h3-open-source)
 - [MiniMax H3 video generation guide](https://platform.minimax.io/docs/guides/video-generation)
-- [genflow-miner MCP behavior](../README.md)
+- [reddit-miner MCP behavior](../README.md)

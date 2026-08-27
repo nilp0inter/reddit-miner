@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from genflow_miner.store import Store
+from reddit_miner.store import Store
 
 from conftest import make_item
 
@@ -60,6 +60,7 @@ def test_claim_fields_and_ordering(store):
         "is_nsfw",
         "first_seen",
         "media",
+        "links",
     }
     assert row["kind"] == "submission"
     assert row["body"] == "b"
@@ -151,3 +152,75 @@ def test_store_migrates_legacy_items_with_nsfw_default(tmp_path):
     row = store.claim_pending(10)[0]
     assert row["reddit_id"] == "t3_legacy"
     assert row["is_nsfw"] == 0
+def test_add_monitor_topic_with_null_query(store):
+    store.add_topic("monitor", None, "python")
+    topics = store.list_topics()
+    assert len(topics) == 1
+    assert topics[0]["name"] == "monitor"
+    assert topics[0]["query"] is None
+    assert topics[0]["subreddit"] == "python"
+    assert store.enabled_topics()[0]["query"] is None
+
+
+def test_remove_topic_keeps_items(store):
+    store.add_topic("t", "q", "all")
+    store.insert_items([make_item("t3_x", topic="t"), make_item("t3_y", topic="t")])
+    assert store.remove_topic("t") is True
+    assert store.list_topics() == []
+    rows = store.claim_pending(10)
+    assert {r["reddit_id"] for r in rows} == {"t3_x", "t3_y"}
+    assert store.remove_topic("t") is False
+
+
+def test_set_topic_enabled_toggles_visibility(store):
+    store.add_topic("a", "qa", "all")
+    store.add_topic("b", "qb", "all")
+    assert len(store.enabled_topics()) == 2
+    assert store.set_topic_enabled("a", False) is True
+    enabled = store.enabled_topics()
+    assert len(enabled) == 1 and enabled[0]["name"] == "b"
+    assert store.set_topic_enabled("a", True) is True
+    assert len(store.enabled_topics()) == 2
+    assert store.set_topic_enabled("missing", False) is False
+
+
+def test_claim_includes_links(store):
+    item = make_item(
+        "t3_links", links=("https://example.com/a", "https://example.com/b")
+    )
+    store.insert_items([item])
+    rows = store.claim_pending(10)
+    assert rows[0]["links"] == ["https://example.com/a", "https://example.com/b"]
+    # Deduped link insertion for a second item
+    second = make_item("t3_links2", links=("https://example.com/a",))
+    store.insert_items([second])
+    rows = store.claim_pending(10)
+    assert rows[0]["links"] == ["https://example.com/a"]
+
+
+def test_store_migrates_legacy_query_not_null(tmp_path):
+    path = tmp_path / "legacy_query.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE search_topics (
+                name TEXT PRIMARY KEY,
+                query TEXT NOT NULL,
+                subreddit TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            INSERT INTO search_topics (name, query, subreddit) VALUES ('old', 'q', 'all');
+            """
+        )
+    store = Store(path)
+    topics = store.list_topics()
+    assert any(t["name"] == "old" and t["query"] == "q" for t in topics)
+    store.add_topic("monitor", None, "python")
+    assert any(t["name"] == "monitor" and t["query"] is None for t in store.list_topics())
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        notnull = next(
+            r for r in conn.execute("PRAGMA table_info(search_topics)") if r["name"] == "query"
+        )["notnull"]
+        assert notnull == 0

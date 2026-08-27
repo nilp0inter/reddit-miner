@@ -1,4 +1,4 @@
-"""SQLite persistence for genflow-miner.
+"""SQLite persistence for reddit-miner.
 
 One database file holds search topics and the collected items queue.
 Connections are short-lived: every storage operation opens its own connection
@@ -16,7 +16,7 @@ from typing import Any
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS search_topics (
     name        TEXT PRIMARY KEY,
-    query       TEXT NOT NULL,
+    query       TEXT,                   -- NULL: collect all new posts
     subreddit   TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS media (
     FOREIGN KEY (reddit_id) REFERENCES items (reddit_id)
 );
 CREATE INDEX IF NOT EXISTS idx_media_reddit_id ON media (reddit_id);
+
+CREATE TABLE IF NOT EXISTS links (
+    id          INTEGER PRIMARY KEY,
+    reddit_id   TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (reddit_id, url),
+    FOREIGN KEY (reddit_id) REFERENCES items (reddit_id)
+);
+CREATE INDEX IF NOT EXISTS idx_links_reddit_id ON links (reddit_id);
 """
 
 
@@ -67,6 +77,7 @@ class Item:
     created_utc: float
     topic_name: str
     media_urls: tuple[str, ...] = ()
+    links: tuple[str, ...] = ()
     is_nsfw: bool = False
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
@@ -89,24 +100,72 @@ class Store:
 
     @staticmethod
     def _migrate_schema(conn: sqlite3.Connection) -> None:
-        columns = {
+        item_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(items)")
         }
-        if "is_nsfw" not in columns:
+        if "is_nsfw" not in item_columns:
             conn.execute(
                 "ALTER TABLE items"
                 " ADD COLUMN is_nsfw INTEGER NOT NULL DEFAULT 0"
             )
 
+        topic_columns = {
+            row["name"]: row for row in conn.execute(
+                "PRAGMA table_info(search_topics)"
+            )
+        }
+        query_col = topic_columns.get("query")
+        if query_col is not None and query_col["notnull"]:
+            # Legacy schema made query NOT NULL. Rebuild the table so
+            # monitoring topics (query NULL) can be stored. Rows preserved.
+            conn.executescript(
+                "CREATE TABLE search_topics_v2 ("
+                " name TEXT PRIMARY KEY,"
+                " query TEXT,"
+                " subreddit TEXT NOT NULL,"
+                " enabled INTEGER NOT NULL DEFAULT 1,"
+                " created_at TEXT NOT NULL DEFAULT"
+                " (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+                ");"
+                "INSERT INTO search_topics_v2"
+                " (name, query, subreddit, enabled, created_at)"
+                " SELECT name, query, subreddit, enabled, created_at"
+                " FROM search_topics;"
+                "DROP TABLE search_topics;"
+                "ALTER TABLE search_topics_v2 RENAME TO search_topics;"
+            )
+
     # -- topics ------------------------------------------------------------
 
-    def add_topic(self, name: str, query: str, subreddit: str = "all") -> None:
-        """Insert a search topic. Raises sqlite3.IntegrityError on duplicate name."""
+    def add_topic(
+        self, name: str, query: str | None, subreddit: str = "all"
+    ) -> None:
+        """Insert a search topic. `query` None monitors all new posts.
+        Raises sqlite3.IntegrityError on duplicate name."""
         with _connect(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO search_topics (name, query, subreddit) VALUES (?, ?, ?)",
+                "INSERT INTO search_topics (name, query, subreddit)"
+                " VALUES (?, ?, ?)",
                 (name, query, subreddit),
             )
+    def remove_topic(self, name: str) -> bool:
+        """Delete a topic. Collected items survive; `topic_name` stays as a
+        historical label. Returns False when the name does not exist."""
+        with _connect(self.db_path) as conn:
+            cur = conn.execute(
+                "DELETE FROM search_topics WHERE name = ?", (name,)
+            )
+        return cur.rowcount == 1
+
+    def set_topic_enabled(self, name: str, enabled: bool) -> bool:
+        """Enable or disable polling for one topic. Returns False when the
+        name does not exist."""
+        with _connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE search_topics SET enabled = ? WHERE name = ?",
+                (int(enabled), name),
+            )
+        return cur.rowcount == 1
 
     def list_topics(self) -> list[dict[str, Any]]:
         with _connect(self.db_path) as conn:
@@ -147,6 +206,9 @@ class Store:
             )
             for item in items
         ]
+        link_rows = [
+            (item.reddit_id, url) for item in items for url in item.links
+        ]
         with _connect(self.db_path) as conn:
             cur = conn.executemany(
                 "INSERT INTO items (reddit_id, kind, title, body, permalink,"
@@ -155,6 +217,13 @@ class Store:
                 " ON CONFLICT (reddit_id) DO NOTHING",
                 rows,
             )
+            if link_rows:
+                conn.executemany(
+                    "INSERT INTO links (reddit_id, url)"
+                    " VALUES (?, ?)"
+                    " ON CONFLICT (reddit_id, url) DO NOTHING",
+                    link_rows,
+                )
             return cur.rowcount
 
     # -- media ---------------------------------------------------------------
@@ -222,6 +291,30 @@ class Store:
             item["media"] = by_reddit_id[item["reddit_id"]]
         return items
 
+    def _attach_links(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if not items:
+            return items
+
+        reddit_ids = [item["reddit_id"] for item in items]
+        placeholders = ", ".join("?" for _ in reddit_ids)
+        with _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT reddit_id, url FROM links"
+                f" WHERE reddit_id IN ({placeholders}) ORDER BY id",
+                reddit_ids,
+            ).fetchall()
+
+        by_reddit_id: dict[str, list[str]] = {
+            reddit_id: [] for reddit_id in reddit_ids
+        }
+        for row in rows:
+            by_reddit_id[row["reddit_id"]].append(row["url"])
+        for item in items:
+            item["links"] = by_reddit_id[item["reddit_id"]]
+        return items
+
     def claim_pending(self, limit: int) -> list[dict[str, Any]]:
         """Atomically select pending items and mark them delivered.
 
@@ -253,7 +346,7 @@ class Store:
             raise
         finally:
             conn.close()
-        return self._attach_media([dict(row) for row in rows])
+        return self._attach_links(self._attach_media([dict(row) for row in rows]))
 
     def pending_count(self) -> int:
         with _connect(self.db_path) as conn:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from genflow_miner.store import Item
+from reddit_miner.store import Item
 
 
 class FakeComment:
@@ -73,6 +73,8 @@ class FakeSubreddit:
     def search(self, query, limit=None, sort=None):
         return iter(self._submissions)
 
+    def new(self, limit=None):
+        return iter(self._submissions)
 
 class FakeReddit:
     """Programmable stand-in for praw.Reddit. Each call to search() returns the

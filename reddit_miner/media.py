@@ -28,7 +28,7 @@ def fetch_media(url: str) -> tuple[bytes, str]:
 
     request = Request(
         url,
-        headers={"User-Agent": "genflow-miner/0.1 media collector"},
+        headers={"User-Agent": "reddit-miner/0.2 media collector"},
     )
     with urlopen(request, timeout=30) as response:
         if not _is_reddit_media_url(response.geturl()):

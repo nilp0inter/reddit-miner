@@ -6,10 +6,10 @@ import base64
 
 from mcp import Client
 
-from genflow_miner.collector import run_pass
-from genflow_miner.reddit_source import collect_topic
-from genflow_miner.server import build_server
-from genflow_miner.store import Store
+from reddit_miner.collector import run_pass
+from reddit_miner.reddit_source import collect_topic
+from reddit_miner.server import build_server
+from reddit_miner.store import Store
 
 from conftest import FakeReddit, FakeSubmission, make_item
 

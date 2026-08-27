@@ -5,7 +5,9 @@ from __future__ import annotations
 import html
 import logging
 import os
+import re
 from collections.abc import Iterator
+from urllib.parse import urlsplit
 
 from .store import Item
 
@@ -28,6 +30,7 @@ MEDIA_SUFFIXES = (
     ".webm",
     ".webp",
 )
+LINK_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 
 def build_reddit():
     """Build a read-only PRAW Reddit instance from environment credentials.
@@ -40,7 +43,7 @@ def build_reddit():
     client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
     user_agent = os.environ.get(
         "REDDIT_USER_AGENT",
-        "research:genflow-miner:v0.1 (script, read-only)",
+        "research:reddit-miner:v0.2 (script, read-only)",
     )
     missing = [
         n
@@ -69,7 +72,12 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
     collected item. Errors here are caught by the caller per topic.
     """
     subreddit = reddit.subreddit(topic["subreddit"])
-    for submission in subreddit.search(topic["query"], limit=SEARCH_LIMIT, sort="new"):
+    query = topic.get("query")
+    if query:
+        submissions = subreddit.search(query, limit=SEARCH_LIMIT, sort="new")
+    else:
+        submissions = subreddit.new(limit=SEARCH_LIMIT)
+    for submission in submissions:
         is_nsfw = bool(getattr(submission, "over_18", False))
         yield Item(
             reddit_id=f"t3_{submission.id}",
@@ -82,6 +90,9 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
             topic_name=topic["name"],
             is_nsfw=is_nsfw,
             media_urls=extract_media_urls(submission),
+            links=extract_links(
+                submission.selftext, _external_submission_url(submission)
+            ),
         )
         submission.comments.replace_more(limit=0)
         for comment in submission.comments.list():
@@ -98,6 +109,7 @@ def collect_topic(reddit, topic: dict) -> Iterator[Item]:
                 created_utc=float(comment.created_utc),
                 topic_name=topic["name"],
                 is_nsfw=is_nsfw,
+                links=extract_links(body),
             )
 
 
@@ -150,8 +162,42 @@ def _has_media_suffix(url: str) -> bool:
 
 
 def _is_reddit_media_url(url: str) -> bool:
-    from urllib.parse import urlsplit
-
     parsed = urlsplit(url)
     hostname = parsed.hostname or ""
     return parsed.scheme == "https" and hostname.lower().endswith(MEDIA_HOST_SUFFIXES)
+
+
+def _is_external_link(url: str) -> bool:
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    if scheme not in ("http", "https") or not hostname:
+        return False
+    if hostname == "reddit.com" or hostname.endswith(".reddit.com"):
+        return False
+    if hostname.endswith(MEDIA_HOST_SUFFIXES):
+        return False
+    return True
+
+
+def _external_submission_url(submission) -> str | None:
+    url = _clean_url(getattr(submission, "url", None))
+    if url and _is_external_link(url):
+        return url
+    return None
+
+
+def extract_links(*texts: str | None) -> tuple[str, ...]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for text in texts:
+        if not text:
+            continue
+        for match in LINK_RE.findall(html.unescape(text)):
+            url = match.rstrip(".,;:!?'\"`])}")
+            if not _is_external_link(url):
+                continue
+            if url not in seen:
+                seen.add(url)
+                out.append(url)
+    return tuple(out)

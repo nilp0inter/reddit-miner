@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import time
 
-from genflow_miner.collector import CollectorLoop, run_pass
-from genflow_miner.store import Store
+from reddit_miner.collector import CollectorLoop, run_pass
+from reddit_miner.store import Store
 
 from conftest import FakeComment, FakeReddit, FakeSubmission
 
@@ -191,3 +191,64 @@ def test_collector_loop_survives_failing_source(tmp_path):
     finally:
         loop.stop()
     assert not loop._thread.is_alive()
+def test_run_pass_monitor_topic_without_query(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.add_topic("monitor", None, "python")
+    reddit = FakeReddit({"python": [sub("m1"), sub("m2", comments=(comment("cm1"),))]})
+    inserted, failed = run_pass(store, reddit, store.enabled_topics())
+    assert inserted == 3  # 2 submissions + 1 comment
+    assert failed == 0
+    assert store.pending_count() == 3
+
+
+def test_collect_extracts_external_links_and_excludes_reddit_and_media(tmp_path):
+    from reddit_miner.reddit_source import collect_topic, extract_links
+
+    # Direct unit: reddit.com and media hosts are excluded, external kept
+    assert extract_links("see https://example.com/a and https://reddit.com/r/x") == (
+        "https://example.com/a",
+    )
+    assert extract_links("media https://i.redd.it/img.png") == ()
+    assert extract_links("https://example.com/x,") == ("https://example.com/x",)
+    # dedupe, trailing punctuation
+    assert extract_links("https://example.com/a https://example.com/a") == (
+        "https://example.com/a",
+    )
+    assert extract_links("https://example.com/a?x=1&amp;y=2") == (
+        "https://example.com/a?x=1&y=2",
+    )
+    # Integration: submission selftext + link-post url
+    store = Store(tmp_path / "db.sqlite3")
+    body = "Tutorial at https://example.com/guide and also https://reddit.com/r/python"
+    submission = sub(
+        "lnk1",
+        selftext=body,
+        url="https://external.example.org/article",
+        post_hint=None,
+    )
+    reddit = FakeReddit({"python": [submission]})
+    topic = {"name": "monitor", "query": None, "subreddit": "python"}
+    item = next(collect_topic(reddit, topic))
+    assert "https://example.com/guide" in item.links
+    assert "https://external.example.org/article" in item.links
+    assert not any("reddit.com" in u for u in item.links)
+    assert not any("redd.it" in u for u in item.links)
+
+
+def test_run_pass_persists_links_and_claim_returns_them(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.add_topic("links", "topic", "python")
+    submission = sub(
+        "sl1",
+        selftext="See https://example.com/a and https://example.com/b.",
+        comments=(comment("cl1", body="comment link https://example.com/c"),),
+    )
+    reddit = FakeReddit({"python": [submission]})
+    run_pass(store, reddit, store.enabled_topics())
+    rows = store.claim_pending(10)
+    by_id = {r["reddit_id"]: r for r in rows}
+    assert by_id["t3_sl1"]["links"] == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+    assert by_id["t1_cl1"]["links"] == ["https://example.com/c"]
