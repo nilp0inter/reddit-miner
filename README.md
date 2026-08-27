@@ -23,6 +23,26 @@ The collector stores text needed for distillation: title, body, permalink, subre
 uv sync
 ```
 
+### Nix
+
+Run the application from the current checkout:
+
+```sh
+nix run .
+```
+
+Run the application directly from GitHub:
+
+```sh
+nix run github:nilp0inter/reddit-miner
+```
+
+Build the package without running it:
+
+```sh
+nix build .#reddit-miner
+```
+
 Create a Reddit script application at `https://www.reddit.com/prefs/apps`.
 Set its read-only OAuth credentials:
 
